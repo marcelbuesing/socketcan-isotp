@@ -156,22 +156,22 @@ bitflags! {
 }
 
 /// if set, indicate 29 bit extended format
-pub const EFF_FLAG: u32 = 0x80000000;
+pub const EFF_FLAG: u32 = 0x8000_0000;
 
 /// remote transmission request flag
-pub const RTR_FLAG: u32 = 0x40000000;
+pub const RTR_FLAG: u32 = 0x4000_0000;
 
 /// error flag
-pub const ERR_FLAG: u32 = 0x20000000;
+pub const ERR_FLAG: u32 = 0x2000_0000;
 
 /// valid bits in standard frame id
-pub const SFF_MASK: u32 = 0x000007ff;
+pub const SFF_MASK: u32 = 0x0000_07ff;
 
 /// valid bits in extended frame id
-pub const EFF_MASK: u32 = 0x1fffffff;
+pub const EFF_MASK: u32 = 0x1fff_ffff;
 
 /// valid bits in error frame
-pub const ERR_MASK: u32 = 0x1fffffff;
+pub const ERR_MASK: u32 = 0x1fff_ffff;
 
 /// an error mask that will cause SocketCAN to report all errors
 pub const ERR_MASK_ALL: u32 = ERR_MASK;
@@ -688,7 +688,7 @@ impl AsRawFd for IsoTpSocket {
 
 impl FromRawFd for IsoTpSocket {
     unsafe fn from_raw_fd(fd: RawFd) -> IsoTpSocket {
-        IsoTpSocket { fd: fd }
+        IsoTpSocket { fd }
     }
 }
 

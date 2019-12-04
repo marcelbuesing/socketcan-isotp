@@ -48,7 +48,6 @@ use libc::{
 use nix::net::if_::if_nametoindex;
 pub use socketcan::CANFrame;
 use std::convert::TryFrom;
-use std::mem;
 use std::mem::size_of;
 use std::num::TryFromIntError;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
@@ -109,7 +108,10 @@ pub const SOL_CAN_BASE: c_int = 100;
 
 pub const SOL_CAN_ISOTP: c_int = SOL_CAN_BASE + CAN_ISOTP;
 
-/// pass struct can_isotp_fc_options
+/// pass struct `IsoTpOptions`
+pub const CAN_ISOTP_OPTS: c_int = 1;
+
+/// pass struct `FlowControlOptions`
 pub const CAN_ISOTP_RECV_FC: c_int = 2;
 
 /// pass __u32 value in nano secs
@@ -122,7 +124,7 @@ pub const CAN_ISOTP_TX_STMIN: c_int = 3;
 /// timestamps differ less than val
 pub const CAN_ISOTP_RX_STMIN: c_int = 4;
 
-/// pass struct can_isotp_ll_options
+/// pass struct `LinkLayerOptions`
 pub const CAN_ISOTP_LL_OPTS: c_int = 5;
 
 /// CAN_MAX_DLEN According to ISO 11898-1
@@ -186,8 +188,9 @@ struct CanAddr {
     tx_id: u32,
 }
 
+/// IsoTp otions aka `can_isotp_options`
 #[repr(C)]
-pub struct CanIsoTpOptions {
+pub struct IsoTpOptions {
     /// set flags for isotp behaviour.
     flags: u32,
     /// frame transmission time (N_As/N_Ar)
@@ -203,7 +206,7 @@ pub struct CanIsoTpOptions {
     rx_ext_address: u8,
 }
 
-impl CanIsoTpOptions {
+impl IsoTpOptions {
     fn new(
         flags: IsoTpBehaviour,
         frame_txtime: Duration,
@@ -287,7 +290,7 @@ impl CanIsoTpOptions {
     }
 }
 
-impl Default for CanIsoTpOptions {
+impl Default for IsoTpOptions {
     fn default() -> Self {
         // Defaults defined in linux/can/isotp.h
         Self {
@@ -301,9 +304,9 @@ impl Default for CanIsoTpOptions {
     }
 }
 
-/// Flow control options
+/// Flow control options aka `can_isotp_fc_options`
 #[repr(C)]
-pub struct CanIsotpFcOptions {
+pub struct FlowControlOptions {
     /// blocksize provided in FC frame
     /// 0 = off
     bs: u8,
@@ -319,6 +322,19 @@ pub struct CanIsotpFcOptions {
     wftmax: u8,
 }
 
+impl Default for FlowControlOptions {
+    fn default() -> Self {
+        Self {
+            // CAN_ISOTP_DEFAULT_RECV_BS
+            bs: 0,
+            // CAN_ISOTP_DEFAULT_RECV_STMIN
+            stmin: 0x00,
+            // CAN_ISOTP_DEFAULT_RECV_WFTMAX
+            wftmax: 0,
+        }
+    }
+}
+
 bitflags! {
     pub struct TxFlags: u8 {
         /// bit rate switch (second bitrate for payload data)
@@ -328,9 +344,9 @@ bitflags! {
     }
 }
 
-/// Link layer options
+/// Link layer options aka `can_isotp_ll_options`
 #[repr(C)]
-pub struct CanIsoTpLlOptions {
+pub struct LinkLayerOptions {
     /// generated & accepted CAN frame type
     /// CAN_MTU   (16) -> standard CAN 2.0
     /// CANFD_MTU (72) -> CAN FD frame
@@ -347,7 +363,7 @@ pub struct CanIsoTpLlOptions {
     tx_flags: u8,
 }
 
-impl CanIsoTpLlOptions {
+impl LinkLayerOptions {
     fn new(mtu: u8, tx_dl: u8, tx_flags: TxFlags) -> Self {
         let tx_flags = tx_flags.bits();
         Self {
@@ -358,11 +374,14 @@ impl CanIsoTpLlOptions {
     }
 }
 
-impl Default for CanIsoTpLlOptions {
+impl Default for LinkLayerOptions {
     fn default() -> Self {
         Self {
-            mtu: mem::size_of::<CANFrame>() as u8,
+            // CAN_ISOTP_DEFAULT_LL_MTU
+            mtu: size_of::<CANFrame>() as u8,
+            // CAN_ISOTP_DEFAULT_LL_TX_DL
             tx_dl: CAN_MAX_DLEN,
+            // CAN_ISOTP_DEFAULT_LL_TX_FLAGS
             tx_flags: 0x00,
         }
     }
@@ -464,15 +483,30 @@ impl IsoTpSocket {
     ///
     /// Usually the more common case, opens a socket can device by name, such
     /// as "vcan0" or "socan0".
-    pub fn open(ifname: &str) -> Result<IsoTpSocket, IsoTpSocketOpenError> {
+    pub fn open(
+        ifname: &str,
+        isotp_options: Option<&mut IsoTpOptions>,
+        rx_flow_control_options: Option<&mut FlowControlOptions>,
+        link_layer_options: Option<&mut LinkLayerOptions>,
+    ) -> Result<IsoTpSocket, IsoTpSocketOpenError> {
         let if_index = if_nametoindex(ifname)?;
-        IsoTpSocket::open_if(if_index)
+        IsoTpSocket::open_if(
+            if_index,
+            isotp_options,
+            rx_flow_control_options,
+            link_layer_options,
+        )
     }
 
     /// Open CAN device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    pub fn open_if(if_index: c_uint) -> Result<IsoTpSocket, IsoTpSocketOpenError> {
+    pub fn open_if(
+        if_index: c_uint,
+        isotp_options: Option<&mut IsoTpOptions>,
+        rx_flow_control_options: Option<&mut FlowControlOptions>,
+        link_layer_options: Option<&mut LinkLayerOptions>,
+    ) -> Result<IsoTpSocket, IsoTpSocketOpenError> {
         let addr = CanAddr {
             _af_can: AF_CAN as c_short,
             if_index: if_index as c_int,
@@ -488,6 +522,61 @@ impl IsoTpSocket {
 
         if sock_fd == -1 {
             return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
+        }
+
+        // Set IsoTpOptions
+        if let Some(isotp_options) = isotp_options {
+            let isotp_options_ptr: *mut c_void = isotp_options as *mut _ as *mut c_void;
+            const ISOTP_OPTIONS_SIZE: u32 = size_of::<FlowControlOptions>() as u32;
+            let err = unsafe {
+                setsockopt(
+                    sock_fd,
+                    SOL_CAN_ISOTP,
+                    CAN_ISOTP_OPTS,
+                    isotp_options_ptr,
+                    ISOTP_OPTIONS_SIZE,
+                )
+            };
+            if err == -1 {
+                return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
+            }
+        }
+
+        // Set FlowControlOptions
+        if let Some(rx_flow_control_options) = rx_flow_control_options {
+            let rx_flow_control_options_ptr: *mut c_void =
+                rx_flow_control_options as *mut _ as *mut c_void;
+            const FLOW_CONTROL_OPTIONS_SIZE: u32 = size_of::<FlowControlOptions>() as u32;
+            let err = unsafe {
+                setsockopt(
+                    sock_fd,
+                    SOL_CAN_ISOTP,
+                    CAN_ISOTP_RECV_FC,
+                    rx_flow_control_options_ptr,
+                    FLOW_CONTROL_OPTIONS_SIZE,
+                )
+            };
+            if err == -1 {
+                return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
+            }
+        }
+
+        // Set LinkLayerOptions
+        if let Some(link_layer_options) = link_layer_options {
+            let link_layer_options_ptr: *mut c_void = link_layer_options as *mut _ as *mut c_void;
+            const LINK_LAYER_OPTIONS_SIZE: u32 = size_of::<LinkLayerOptions>() as u32;
+            let err = unsafe {
+                setsockopt(
+                    sock_fd,
+                    SOL_CAN_ISOTP,
+                    CAN_ISOTP_LL_OPTS,
+                    link_layer_options_ptr,
+                    LINK_LAYER_OPTIONS_SIZE,
+                )
+            };
+            if err == -1 {
+                return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
+            }
         }
 
         // bind it
@@ -547,27 +636,27 @@ impl IsoTpSocket {
     }
 
     /// Blocking read a single can frame.
-    pub fn read_frame(&self) -> io::Result<CANFrame> {
-        let mut frame = CANFrame {
-            _id: 0,
-            _data_len: 0,
-            _pad: 0,
-            _res0: 0,
-            _res1: 0,
-            _data: [0; 8],
-        };
+    // pub fn read_frame(&self) -> io::Result<CANFrame> {
+    //     let mut frame = CANFrame {
+    //         _id: 0,
+    //         _data_len: 0,
+    //         _pad: 0,
+    //         _res0: 0,
+    //         _res1: 0,
+    //         _data: [0; 8],
+    //     };
 
-        let read_rv = unsafe {
-            let frame_ptr = &mut frame as *mut CANFrame;
-            read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrame>())
-        };
+    //     let read_rv = unsafe {
+    //         let frame_ptr = &mut frame as *mut CANFrame;
+    //         read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrame>())
+    //     };
 
-        if read_rv as usize != size_of::<CANFrame>() {
-            return Err(io::Error::last_os_error());
-        }
+    //     if read_rv as usize != size_of::<CANFrame>() {
+    //         return Err(io::Error::last_os_error());
+    //     }
 
-        Ok(frame)
-    }
+    //     Ok(frame)
+    // }
 
     /// Write a single can frame.
     ///

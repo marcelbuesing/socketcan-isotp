@@ -207,7 +207,7 @@ pub struct IsoTpOptions {
 }
 
 impl IsoTpOptions {
-    fn new(
+    pub fn new(
         flags: IsoTpBehaviour,
         frame_txtime: Duration,
         ext_address: u8,
@@ -229,63 +229,63 @@ impl IsoTpOptions {
     }
 
     /// get flags for isotp behaviour.
-    fn get_flags(&self) -> Option<IsoTpBehaviour> {
+    pub fn get_flags(&self) -> Option<IsoTpBehaviour> {
         IsoTpBehaviour::from_bits(self.flags)
     }
 
     /// set flags for isotp behaviour.
-    fn set_flags(&mut self, flags: IsoTpBehaviour) {
+    pub fn set_flags(&mut self, flags: IsoTpBehaviour) {
         self.flags = flags.bits();
     }
 
     /// get frame transmission time (N_As/N_Ar)
-    fn get_frame_txtime(&self) -> Duration {
+    pub fn get_frame_txtime(&self) -> Duration {
         Duration::from_nanos(self.frame_txtime.into())
     }
 
     /// set frame transmission time (N_As/N_Ar)
-    fn set_frame_txtime(&mut self, frame_txtime: Duration) -> Result<(), TryFromIntError> {
+    pub fn set_frame_txtime(&mut self, frame_txtime: Duration) -> Result<(), TryFromIntError> {
         self.frame_txtime = u32::try_from(frame_txtime.as_nanos())?;
         Ok(())
     }
 
     /// get frame transmission time (N_As/N_Ar)
-    fn get_ext_address(&self) -> u8 {
+    pub fn get_ext_address(&self) -> u8 {
         self.ext_address
     }
 
     /// set address for extended addressing
-    fn set_ext_address(&mut self, ext_address: u8) {
+    pub fn set_ext_address(&mut self, ext_address: u8) {
         self.ext_address = ext_address;
     }
 
     /// get address for extended addressing
-    fn get_txpad_content(&self) -> u8 {
+    pub fn get_txpad_content(&self) -> u8 {
         self.txpad_content
     }
 
     /// set content of padding byte (tx)
-    fn set_txpad_content(&mut self, txpad_content: u8) {
+    pub fn set_txpad_content(&mut self, txpad_content: u8) {
         self.txpad_content = txpad_content;
     }
 
     /// get content of padding byte (rx)
-    fn get_rxpad_content(&self) -> u8 {
+    pub fn get_rxpad_content(&self) -> u8 {
         self.rxpad_content
     }
 
     /// set content of padding byte (rx)
-    fn set_rxpad_content(&mut self, rxpad_content: u8) {
+    pub fn set_rxpad_content(&mut self, rxpad_content: u8) {
         self.rxpad_content = rxpad_content;
     }
 
     /// get address for extended addressing
-    fn get_rx_ext_address(&self) -> u8 {
+    pub fn get_rx_ext_address(&self) -> u8 {
         self.rx_ext_address
     }
 
     /// set address for extended addressing
-    fn set_rx_ext_address(&mut self, rx_ext_address: u8) {
+    pub fn set_rx_ext_address(&mut self, rx_ext_address: u8) {
         self.rx_ext_address = rx_ext_address;
     }
 }
@@ -364,7 +364,7 @@ pub struct LinkLayerOptions {
 }
 
 impl LinkLayerOptions {
-    fn new(mtu: u8, tx_dl: u8, tx_flags: TxFlags) -> Self {
+    pub fn new(mtu: u8, tx_dl: u8, tx_flags: TxFlags) -> Self {
         let tx_flags = tx_flags.bits();
         Self {
             mtu,
@@ -485,6 +485,8 @@ impl IsoTpSocket {
     /// as "vcan0" or "socan0".
     pub fn open(
         ifname: &str,
+        src: u32,
+        dst: u32,
         isotp_options: Option<&mut IsoTpOptions>,
         rx_flow_control_options: Option<&mut FlowControlOptions>,
         link_layer_options: Option<&mut LinkLayerOptions>,
@@ -492,6 +494,8 @@ impl IsoTpSocket {
         let if_index = if_nametoindex(ifname)?;
         IsoTpSocket::open_if(
             if_index,
+            src,
+            dst,
             isotp_options,
             rx_flow_control_options,
             link_layer_options,
@@ -503,6 +507,8 @@ impl IsoTpSocket {
     /// Opens a CAN device by kernel interface number.
     pub fn open_if(
         if_index: c_uint,
+        src: u32,
+        dst: u32,
         isotp_options: Option<&mut IsoTpOptions>,
         rx_flow_control_options: Option<&mut FlowControlOptions>,
         link_layer_options: Option<&mut LinkLayerOptions>,
@@ -510,8 +516,8 @@ impl IsoTpSocket {
         let addr = CanAddr {
             _af_can: AF_CAN as c_short,
             if_index: if_index as c_int,
-            rx_id: 0, // ?
-            tx_id: 0, // ?
+            rx_id: dst, // ?
+            tx_id: src, // ?
         };
 
         // open socket
@@ -527,7 +533,7 @@ impl IsoTpSocket {
         // Set IsoTpOptions
         if let Some(isotp_options) = isotp_options {
             let isotp_options_ptr: *mut c_void = isotp_options as *mut _ as *mut c_void;
-            const ISOTP_OPTIONS_SIZE: u32 = size_of::<FlowControlOptions>() as u32;
+            const ISOTP_OPTIONS_SIZE: u32 = size_of::<IsoTpOptions>() as u32;
             let err = unsafe {
                 setsockopt(
                     sock_fd,
@@ -636,63 +642,41 @@ impl IsoTpSocket {
     }
 
     /// Blocking read a single can frame.
-    // pub fn read_frame(&self) -> io::Result<CANFrame> {
-    //     let mut frame = CANFrame {
-    //         _id: 0,
-    //         _data_len: 0,
-    //         _pad: 0,
-    //         _res0: 0,
-    //         _res1: 0,
-    //         _data: [0; 8],
-    //     };
+    pub fn read_frame(&self) -> io::Result<CANFrame> {
+        let mut frame = CANFrame::new(0, &[], false, false).unwrap();
 
-    //     let read_rv = unsafe {
-    //         let frame_ptr = &mut frame as *mut CANFrame;
-    //         read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrame>())
-    //     };
+        let read_rv = unsafe {
+            let frame_ptr = &mut frame as *mut CANFrame;
+            read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrame>())
+        };
 
-    //     if read_rv as usize != size_of::<CANFrame>() {
-    //         return Err(io::Error::last_os_error());
-    //     }
+        if read_rv as usize != size_of::<CANFrame>() {
+            return Err(io::Error::last_os_error());
+        }
 
-    //     Ok(frame)
-    // }
+        Ok(frame)
+    }
 
     /// Write a single can frame.
     ///
     /// Note that this function can fail with an `EAGAIN` error or similar.
     /// Use `write_frame_insist` if you need to be sure that the message got
     /// sent or failed.
-    pub fn write_frame(&self, frame: &CANFrame) -> io::Result<()> {
+    pub fn write(&self, buffer: &[u8]) -> io::Result<()> {
         // not a mutable reference needed (see std::net::UdpSocket) for
         // a comparison
         // debug!("Sending: {:?}", frame);
 
         let write_rv = unsafe {
-            let frame_ptr = frame as *const CANFrame;
-            write(self.fd, frame_ptr as *const c_void, size_of::<CANFrame>())
+            let buffer_ptr = buffer as *const _ as *const c_void;
+            write(self.fd, buffer_ptr, buffer.len())
         };
 
-        if write_rv as usize != size_of::<CANFrame>() {
+        if write_rv as usize != buffer.len() {
             return Err(io::Error::last_os_error());
         }
 
         Ok(())
-    }
-
-    /// Blocking write a single can frame, retrying until it gets sent
-    /// successfully.
-    pub fn write_frame_insist(&self, frame: &CANFrame) -> io::Result<()> {
-        loop {
-            match self.write_frame(frame) {
-                Ok(v) => return Ok(v),
-                Err(e) => {
-                    if !e.should_retry() {
-                        return Err(e);
-                    }
-                }
-            }
-        }
     }
 }
 

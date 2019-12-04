@@ -46,7 +46,9 @@ use libc::{
     EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_DGRAM,
 };
 use nix::net::if_::if_nametoindex;
+pub use socketcan::CANFrame;
 use std::convert::TryFrom;
+use std::mem;
 use std::mem::size_of;
 use std::num::TryFromIntError;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
@@ -123,27 +125,30 @@ pub const CAN_ISOTP_RX_STMIN: c_int = 4;
 /// pass struct can_isotp_ll_options
 pub const CAN_ISOTP_LL_OPTS: c_int = 5;
 
+/// CAN_MAX_DLEN According to ISO 11898-1
+pub const CAN_MAX_DLEN: u8 = 8;
+
 bitflags! {
     pub struct IsoTpBehaviour: u32 {
-        /* listen only (do not send FC) */
+        /// listen only (do not send FC)
         const CAN_ISOTP_LISTEN_MODE = 0x001;
-        /* enable extended addressing */
+        /// enable extended addressing
         const CAN_ISOTP_EXTEND_ADDR	= 0x002;
-        /* enable CAN frame padding tx path */
+        /// enable CAN frame padding tx path
         const CAN_ISOTP_TX_PADDING	= 0x004;
-        /* enable CAN frame padding rx path */
+        /// enable CAN frame padding rx path
         const CAN_ISOTP_RX_PADDING	= 0x008;
-        /* check received CAN frame padding */
+        /// check received CAN frame padding
         const CAN_ISOTP_CHK_PAD_LEN	= 0x010;
-        /* check received CAN frame padding */
+        /// check received CAN frame padding
         const CAN_ISOTP_CHK_PAD_DATA = 0x020;
-        /* half duplex error state handling */
+        /// half duplex error state handling
         const CAN_ISOTP_HALF_DUPLEX = 0x040;
-        /* ignore stmin from received FC */
+        /// ignore stmin from received FC
         const CAN_ISOTP_FORCE_TXSTMIN = 0x080;
-        /* ignore CFs depending on rx stmin */
+        /// ignore CFs depending on rx stmin
         const CAN_ISOTP_FORCE_RXSTMIN = 0x100;
-        /* different rx extended addressing */
+        /// different rx extended addressing
         const CAN_ISOTP_RX_EXT_ADDR = 0x200;
     }
 }
@@ -296,6 +301,7 @@ impl Default for CanIsoTpOptions {
     }
 }
 
+/// Flow control options
 #[repr(C)]
 pub struct CanIsotpFcOptions {
     /// blocksize provided in FC frame
@@ -313,6 +319,16 @@ pub struct CanIsotpFcOptions {
     wftmax: u8,
 }
 
+bitflags! {
+    pub struct TxFlags: u8 {
+        /// bit rate switch (second bitrate for payload data)
+        const CANFD_BRS = 0x01;
+        /// error state indicator of the transmitting node
+        const CANFD_ESI	= 0x02;
+    }
+}
+
+/// Link layer options
 #[repr(C)]
 pub struct CanIsoTpLlOptions {
     /// generated & accepted CAN frame type
@@ -329,6 +345,27 @@ pub struct CanIsoTpLlOptions {
     /// Obsolete when the BRS flag is fixed
     /// by the CAN netdriver configuration
     tx_flags: u8,
+}
+
+impl CanIsoTpLlOptions {
+    fn new(mtu: u8, tx_dl: u8, tx_flags: TxFlags) -> Self {
+        let tx_flags = tx_flags.bits();
+        Self {
+            mtu,
+            tx_dl,
+            tx_flags,
+        }
+    }
+}
+
+impl Default for CanIsoTpLlOptions {
+    fn default() -> Self {
+        Self {
+            mtu: mem::size_of::<CANFrame>() as u8,
+            tx_dl: CAN_MAX_DLEN,
+            tx_flags: 0x00,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -510,8 +547,8 @@ impl IsoTpSocket {
     }
 
     /// Blocking read a single can frame.
-    pub fn read_frame(&self) -> io::Result<CanFrame> {
-        let mut frame = CanFrame {
+    pub fn read_frame(&self) -> io::Result<CANFrame> {
+        let mut frame = CANFrame {
             _id: 0,
             _data_len: 0,
             _pad: 0,
@@ -521,11 +558,11 @@ impl IsoTpSocket {
         };
 
         let read_rv = unsafe {
-            let frame_ptr = &mut frame as *mut CanFrame;
-            read(self.fd, frame_ptr as *mut c_void, size_of::<CanFrame>())
+            let frame_ptr = &mut frame as *mut CANFrame;
+            read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrame>())
         };
 
-        if read_rv as usize != size_of::<CanFrame>() {
+        if read_rv as usize != size_of::<CANFrame>() {
             return Err(io::Error::last_os_error());
         }
 
@@ -537,17 +574,17 @@ impl IsoTpSocket {
     /// Note that this function can fail with an `EAGAIN` error or similar.
     /// Use `write_frame_insist` if you need to be sure that the message got
     /// sent or failed.
-    pub fn write_frame(&self, frame: &CanFrame) -> io::Result<()> {
+    pub fn write_frame(&self, frame: &CANFrame) -> io::Result<()> {
         // not a mutable reference needed (see std::net::UdpSocket) for
         // a comparison
         // debug!("Sending: {:?}", frame);
 
         let write_rv = unsafe {
-            let frame_ptr = frame as *const CanFrame;
-            write(self.fd, frame_ptr as *const c_void, size_of::<CanFrame>())
+            let frame_ptr = frame as *const CANFrame;
+            write(self.fd, frame_ptr as *const c_void, size_of::<CANFrame>())
         };
 
-        if write_rv as usize != size_of::<CanFrame>() {
+        if write_rv as usize != size_of::<CANFrame>() {
             return Err(io::Error::last_os_error());
         }
 
@@ -556,7 +593,7 @@ impl IsoTpSocket {
 
     /// Blocking write a single can frame, retrying until it gets sent
     /// successfully.
-    pub fn write_frame_insist(&self, frame: &CanFrame) -> io::Result<()> {
+    pub fn write_frame_insist(&self, frame: &CANFrame) -> io::Result<()> {
         loop {
             match self.write_frame(frame) {
                 Ok(v) => return Ok(v),
@@ -591,146 +628,5 @@ impl IntoRawFd for IsoTpSocket {
 impl Drop for IsoTpSocket {
     fn drop(&mut self) {
         self.close().ok(); // ignore result
-    }
-}
-
-/// CanFrame
-///
-/// Uses the same memory layout as the underlying kernel struct for performance
-/// reasons.
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct CanFrame {
-    /// 32 bit CAN_ID + EFF/RTR/ERR flags
-    _id: u32,
-
-    /// data length. Bytes beyond are not valid
-    _data_len: u8,
-
-    /// padding
-    _pad: u8,
-
-    /// reserved
-    _res0: u8,
-
-    /// reserved
-    _res1: u8,
-
-    /// buffer for data
-    _data: [u8; 8],
-}
-
-impl CanFrame {
-    pub fn new(id: u32, data: &[u8], rtr: bool, err: bool) -> Result<CanFrame, ConstructionError> {
-        let mut _id = id;
-
-        if data.len() > 8 {
-            return Err(ConstructionError::TooMuchData);
-        }
-
-        if id > EFF_MASK {
-            return Err(ConstructionError::IDTooLarge);
-        }
-
-        // set EFF_FLAG on large message
-        if id > SFF_MASK {
-            _id |= EFF_FLAG;
-        }
-
-        if rtr {
-            _id |= RTR_FLAG;
-        }
-
-        if err {
-            _id |= ERR_FLAG;
-        }
-
-        let mut full_data = [0; 8];
-
-        // not cool =/
-        for (n, c) in data.iter().enumerate() {
-            full_data[n] = *c;
-        }
-
-        Ok(CanFrame {
-            _id: _id,
-            _data_len: data.len() as u8,
-            _pad: 0,
-            _res0: 0,
-            _res1: 0,
-            _data: full_data,
-        })
-    }
-
-    /// Return the actual CAN ID (without EFF/RTR/ERR flags)
-    #[inline]
-    pub fn id(&self) -> u32 {
-        if self.is_extended() {
-            self._id & EFF_MASK
-        } else {
-            self._id & SFF_MASK
-        }
-    }
-
-    /// Return the error message
-    #[inline]
-    pub fn err(&self) -> u32 {
-        self._id & ERR_MASK
-    }
-
-    /// Check if frame uses 29 bit extended frame format
-    #[inline]
-    pub fn is_extended(&self) -> bool {
-        self._id & EFF_FLAG != 0
-    }
-
-    /// Check if frame is an error message
-    #[inline]
-    pub fn is_error(&self) -> bool {
-        self._id & ERR_FLAG != 0
-    }
-
-    /// Check if frame is a remote transmission request
-    #[inline]
-    pub fn is_rtr(&self) -> bool {
-        self._id & RTR_FLAG != 0
-    }
-
-    /// A slice into the actual data. Slice will always be <= 8 bytes in length
-    #[inline]
-    pub fn data(&self) -> &[u8] {
-        &self._data[..(self._data_len as usize)]
-    }
-}
-
-// impl fmt::UpperHex for CanFrame {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-//         write!(f, "{:X}#", self.id())?;
-
-//         let mut parts = self.data().iter().map(|v| format!("{:02X}", v));
-
-//         let sep = if f.alternate() { " " } else { "" };
-//         write!(f, "{}", parts.join(sep))
-//     }
-// }
-
-/// CanFilter
-///
-/// Contains an internal id and mask. Packets are considered to be matched by
-/// a filter if `received_id & mask == filter_id & mask` holds true.
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
-pub struct CanFilter {
-    _id: u32,
-    _mask: u32,
-}
-
-impl CanFilter {
-    /// Construct a new CAN filter.
-    pub fn new(id: u32, mask: u32) -> Result<CanFilter, ConstructionError> {
-        Ok(CanFilter {
-            _id: id,
-            _mask: mask,
-        })
     }
 }

@@ -42,13 +42,17 @@
 //! implementations.
 use bitflags::bitflags;
 use libc::{
-    bind, c_int, c_short, c_uint, c_void, close, fcntl, read, sockaddr, socket, write, EINPROGRESS,
-    F_GETFL, F_SETFL, O_NONBLOCK, SOCK_DGRAM, setsockopt,
+    bind, c_int, c_short, c_uint, c_void, close, fcntl, read, setsockopt, sockaddr, socket, write,
+    EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_DGRAM,
 };
 use nix::net::if_::if_nametoindex;
+use std::convert::TryFrom;
 use std::mem::size_of;
+use std::num::TryFromIntError;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
+use std::time::Duration;
 use std::{error, fmt, io};
+
 /// Check an error return value for timeouts.
 ///
 /// Due to the fact that timeouts are reported as errors, calling `read_frame`
@@ -177,23 +181,119 @@ struct CanAddr {
     tx_id: u32,
 }
 
-
 #[repr(C)]
-pub struct CanIsotpOptions {
-
+pub struct CanIsoTpOptions {
     /// set flags for isotp behaviour.
-	flags: IsoTpBehaviour,
+    flags: u32,
     /// frame transmission time (N_As/N_Ar)
     /// time in nano secs
-	frame_txtime: u32,
-    ///  set address for extended addressing
-	ext_address: u8,
-    /// set content of padding byte (tx
-	txpad_content: u8,
-	/// set content of padding byte (rx)
+    frame_txtime: u32,
+    /// set address for extended addressing
+    ext_address: u8,
+    /// set content of padding byte (tx)
+    txpad_content: u8,
+    /// set content of padding byte (rx)
     rxpad_content: u8,
     /// set address for extended addressing
-	rx_ext_address: u8
+    rx_ext_address: u8,
+}
+
+impl CanIsoTpOptions {
+    fn new(
+        flags: IsoTpBehaviour,
+        frame_txtime: Duration,
+        ext_address: u8,
+        txpad_content: u8,
+        rxpad_content: u8,
+        rx_ext_address: u8,
+    ) -> Result<Self, TryFromIntError> {
+        let flags = flags.bits();
+        let frame_txtime = u32::try_from(frame_txtime.as_nanos())?;
+
+        Ok(Self {
+            flags,
+            frame_txtime,
+            ext_address,
+            txpad_content,
+            rxpad_content,
+            rx_ext_address,
+        })
+    }
+
+    /// get flags for isotp behaviour.
+    fn get_flags(&self) -> Option<IsoTpBehaviour> {
+        IsoTpBehaviour::from_bits(self.flags)
+    }
+
+    /// set flags for isotp behaviour.
+    fn set_flags(&mut self, flags: IsoTpBehaviour) {
+        self.flags = flags.bits();
+    }
+
+    /// get frame transmission time (N_As/N_Ar)
+    fn get_frame_txtime(&self) -> Duration {
+        Duration::from_nanos(self.frame_txtime.into())
+    }
+
+    /// set frame transmission time (N_As/N_Ar)
+    fn set_frame_txtime(&mut self, frame_txtime: Duration) -> Result<(), TryFromIntError> {
+        self.frame_txtime = u32::try_from(frame_txtime.as_nanos())?;
+        Ok(())
+    }
+
+    /// get frame transmission time (N_As/N_Ar)
+    fn get_ext_address(&self) -> u8 {
+        self.ext_address
+    }
+
+    /// set address for extended addressing
+    fn set_ext_address(&mut self, ext_address: u8) {
+        self.ext_address = ext_address;
+    }
+
+    /// get address for extended addressing
+    fn get_txpad_content(&self) -> u8 {
+        self.txpad_content
+    }
+
+    /// set content of padding byte (tx)
+    fn set_txpad_content(&mut self, txpad_content: u8) {
+        self.txpad_content = txpad_content;
+    }
+
+    /// get content of padding byte (rx)
+    fn get_rxpad_content(&self) -> u8 {
+        self.rxpad_content
+    }
+
+    /// set content of padding byte (rx)
+    fn set_rxpad_content(&mut self, rxpad_content: u8) {
+        self.rxpad_content = rxpad_content;
+    }
+
+    /// get address for extended addressing
+    fn get_rx_ext_address(&self) -> u8 {
+        self.rx_ext_address
+    }
+
+    /// set address for extended addressing
+    fn set_rx_ext_address(&mut self, rx_ext_address: u8) {
+        self.rx_ext_address = rx_ext_address;
+    }
+}
+
+impl Default for CanIsoTpOptions {
+    fn default() -> Self {
+        // Defaults defined in linux/can/isotp.h
+        Self {
+            flags: 0x00,
+            frame_txtime: 0x00,
+            ext_address: 0x00,
+            txpad_content: 0xCC,
+            rxpad_content: 0xCC,
+            rx_ext_address: 0x00,
+        }
+    }
 }
 
 #[repr(C)]
@@ -202,38 +302,38 @@ pub struct CanIsotpFcOptions {
     /// 0 = off
     bs: u8,
     /// separation time provided in FC frame
-	///
-	/// 0x00 - 0x7F : 0 - 127 ms
-	/// 0x80 - 0xF0 : reserved
-	/// 0xF1 - 0xF9 : 100 us - 900 us
-	/// 0xFA - 0xFF : reserved
-	stmin: u8,
+    ///
+    /// 0x00 - 0x7F : 0 - 127 ms
+    /// 0x80 - 0xF0 : reserved
+    /// 0xF1 - 0xF9 : 100 us - 900 us
+    /// 0xFA - 0xFF : reserved
+    stmin: u8,
     /// max. number of wait frame transmiss.
     /// 0 = omit FC N_PDU WT
-	wftmax: u8
+    wftmax: u8,
 }
 
 #[repr(C)]
 pub struct CanIsoTpLlOptions {
     /// generated & accepted CAN frame type
-	/// CAN_MTU   (16) -> standard CAN 2.0
-	/// CANFD_MTU (72) -> CAN FD frame
-	mtu: u8,
+    /// CAN_MTU   (16) -> standard CAN 2.0
+    /// CANFD_MTU (72) -> CAN FD frame
+    mtu: u8,
     /// tx link layer data length in bytes
-	/// (configured maximum payload length)
-	/// __u8 value : 8,12,16,20,24,32,48,64
-	/// => rx path supports all LL_DL values
-	tx_dl: u8,
+    /// (configured maximum payload length)
+    /// __u8 value : 8,12,16,20,24,32,48,64
+    /// => rx path supports all LL_DL values
+    tx_dl: u8,
     /// set into struct canfd_frame.flags	*/
     /// at frame creation: e.g. CANFD_BRS
-	/// Obsolete when the BRS flag is fixed
-	/// by the CAN netdriver configuration
-	tx_flags: u8,
+    /// Obsolete when the BRS flag is fixed
+    /// by the CAN netdriver configuration
+    tx_flags: u8,
 }
 
 #[derive(Debug)]
 /// Errors opening socket
-pub enum CanSocketOpenError {
+pub enum IsoTpSocketOpenError {
     /// Device could not be found
     LookupError(nix::Error),
 
@@ -241,34 +341,34 @@ pub enum CanSocketOpenError {
     IOError(io::Error),
 }
 
-impl fmt::Display for CanSocketOpenError {
+impl fmt::Display for IsoTpSocketOpenError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CanSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
-            CanSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
+            IsoTpSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
+            IsoTpSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
         }
     }
 }
 
-impl error::Error for CanSocketOpenError {
+impl error::Error for IsoTpSocketOpenError {
     fn description(&self) -> &str {
         match *self {
-            CanSocketOpenError::LookupError(_) => "can device not found",
-            CanSocketOpenError::IOError(ref e) => e.description(),
+            IsoTpSocketOpenError::LookupError(_) => "can device not found",
+            IsoTpSocketOpenError::IOError(ref e) => e.description(),
         }
     }
 
     fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
-            CanSocketOpenError::LookupError(ref e) => Some(e),
-            CanSocketOpenError::IOError(ref e) => Some(e),
+            IsoTpSocketOpenError::LookupError(ref e) => Some(e),
+            IsoTpSocketOpenError::IOError(ref e) => Some(e),
         }
     }
 }
 
-impl From<nix::Error> for CanSocketOpenError {
+impl From<nix::Error> for IsoTpSocketOpenError {
     fn from(err: nix::Error) -> Self {
-        CanSocketOpenError::LookupError(err)
+        IsoTpSocketOpenError::LookupError(err)
     }
 }
 
@@ -301,15 +401,15 @@ impl error::Error for ConstructionError {
     }
 }
 
-// impl From<nix::Error> for CanSocketOpenError {
-//     fn from(e: nix::Error) -> CanSocketOpenError {
-//         CanSocketOpenError::LookupError(e)
+// impl From<nix::Error> for IsoTpSocketOpenError {
+//     fn from(e: nix::Error) -> IsoTpSocketOpenError {
+//         IsoTpSocketOpenError::LookupError(e)
 //     }
 // }
 
-impl From<io::Error> for CanSocketOpenError {
-    fn from(e: io::Error) -> CanSocketOpenError {
-        CanSocketOpenError::IOError(e)
+impl From<io::Error> for IsoTpSocketOpenError {
+    fn from(e: io::Error) -> IsoTpSocketOpenError {
+        IsoTpSocketOpenError::IOError(e)
     }
 }
 
@@ -318,24 +418,24 @@ impl From<io::Error> for CanSocketOpenError {
 /// Will be closed upon deallocation. To close manually, use std::drop::Drop.
 /// Internally this is just a wrapped file-descriptor.
 #[derive(Debug)]
-pub struct CanSocket {
+pub struct IsoTpSocket {
     fd: c_int,
 }
 
-impl CanSocket {
+impl IsoTpSocket {
     /// Open a named CAN device.
     ///
     /// Usually the more common case, opens a socket can device by name, such
     /// as "vcan0" or "socan0".
-    pub fn open(ifname: &str) -> Result<CanSocket, CanSocketOpenError> {
+    pub fn open(ifname: &str) -> Result<IsoTpSocket, IsoTpSocketOpenError> {
         let if_index = if_nametoindex(ifname)?;
-        CanSocket::open_if(if_index)
+        IsoTpSocket::open_if(if_index)
     }
 
     /// Open CAN device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    pub fn open_if(if_index: c_uint) -> Result<CanSocket, CanSocketOpenError> {
+    pub fn open_if(if_index: c_uint) -> Result<IsoTpSocket, IsoTpSocketOpenError> {
         let addr = CanAddr {
             _af_can: AF_CAN as c_short,
             if_index: if_index as c_int,
@@ -350,7 +450,7 @@ impl CanSocket {
         }
 
         if sock_fd == -1 {
-            return Err(CanSocketOpenError::from(io::Error::last_os_error()));
+            return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
         }
 
         // bind it
@@ -370,10 +470,10 @@ impl CanSocket {
             unsafe {
                 close(sock_fd);
             }
-            return Err(CanSocketOpenError::from(e));
+            return Err(IsoTpSocketOpenError::from(e));
         }
 
-        Ok(CanSocket { fd: sock_fd })
+        Ok(IsoTpSocket { fd: sock_fd })
     }
 
     fn close(&mut self) -> io::Result<()> {
@@ -470,25 +570,25 @@ impl CanSocket {
     }
 }
 
-impl AsRawFd for CanSocket {
+impl AsRawFd for IsoTpSocket {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
     }
 }
 
-impl FromRawFd for CanSocket {
-    unsafe fn from_raw_fd(fd: RawFd) -> CanSocket {
-        CanSocket { fd: fd }
+impl FromRawFd for IsoTpSocket {
+    unsafe fn from_raw_fd(fd: RawFd) -> IsoTpSocket {
+        IsoTpSocket { fd: fd }
     }
 }
 
-impl IntoRawFd for CanSocket {
+impl IntoRawFd for IsoTpSocket {
     fn into_raw_fd(self) -> RawFd {
         self.fd
     }
 }
 
-impl Drop for CanSocket {
+impl Drop for IsoTpSocket {
     fn drop(&mut self) {
         self.close().ok(); // ignore result
     }

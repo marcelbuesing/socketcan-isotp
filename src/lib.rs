@@ -30,7 +30,7 @@
 //!     loop {
 //!         let buffer = tp_socket.read()?;
 //!         println!("read {} bytes", buffer.len());
-//!         
+//!
 //!         # print TP frame data
 //!         for x in buffer {
 //!             print!("{:X?} ", x);

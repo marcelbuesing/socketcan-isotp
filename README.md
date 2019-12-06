@@ -19,7 +19,48 @@
   <sub>Built with 🦀</sub>
 </div>
 
-Based on socketcan-rs and isotp.h.
+SocketCAN ISO-TP crate. Based on socketcan-rs and isotp.h.
+
+The Linux kernel supports using CAN-devices through a
+[network-like API](https://www.kernel.org/doc/Documentation/networking/can.txt).
+This crate allows easy access to this functionality without having to wrestle
+libc calls.
+
+ISO-TP allows sending data packets that exceed the eight byte of a default CAN frame.
+[can-isotp](https://github.com/hartkopp/can-isotp) is an ISO-TP kernel module that takes
+care of handling the ISO-TP protocol.
+
+Instructions on how the can-isotp kernel module can be build and loaded can be found
+at [https://github.com/hartkopp/can-isotp](https://github.com/hartkopp/can-isotp) .
+
+```rust
+use socketcan_isotp::IsoTpSocket;
+use std::io;
+fn main() -> io::Result<()> {
+    let mut tp_socket = IsoTpSocket::open(
+        "vcan0",
+        0x123,
+        0x321,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    loop {
+        let buffer = tp_socket.read()?;
+        println!("read {} bytes", buffer.len());
+
+        # print TP frame data
+        for x in buffer {
+            print!("{:X?} ", x);
+        }
+        println!("");
+    }
+
+    Ok(())
+}
+```
 
 # Dev Setup
 

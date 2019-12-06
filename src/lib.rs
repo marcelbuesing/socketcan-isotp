@@ -1,52 +1,54 @@
-//! SocketCAN support.
+//! SocketCAN ISO-TP support.
 //!
-//! The Linux kernel supports using CAN-devices through a network-like API
-//! (see https://www.kernel.org/doc/Documentation/networking/can.txt). This
-//! crate allows easy access to this functionality without having to wrestle
+//! The Linux kernel supports using CAN-devices through a
+//! [network-like API](https://www.kernel.org/doc/Documentation/networking/can.txt).
+//! This crate allows easy access to this functionality without having to wrestle
 //! libc calls.
 //!
-//! # An introduction to CAN
+//! ISO-TP allows sending data packets that exceed the eight byte of a default CAN frame.
+//! [can-isotp](https://github.com/hartkopp/can-isotp) is an ISO-TP kernel module that takes
+//! care of handling the ISO-TP protocol.
 //!
-//! The CAN bus was originally designed to allow microcontrollers inside a
-//! vehicle to communicate over a single shared bus. Messages called
-//! *frames* are multicast to all devices on the bus.
+//! Instructions on how the can-isotp kernel module can be build and loaded can be found
+//! at [https://github.com/hartkopp/can-isotp](https://github.com/hartkopp/can-isotp) .
 //!
-//! Every frame consists of an ID and a payload of up to 8 bytes. If two
-//! devices attempt to send a frame at the same time, the device with the
-//! higher ID will notice the conflict, stop sending and reattempt to sent its
-//! frame in the next time slot. This means that the lower the ID, the higher
-//! the priority. Since most devices have a limited buffer for outgoing frames,
-//! a single device with a high priority (== low ID) can block communication
-//! on that bus by sending messages too fast.
+//! ```rust
+//! use socketcan_isotp::IsoTpSocket;
+//! use std::io;
 //!
-//! The Linux socketcan subsystem makes the CAN bus available as a regular
-//! networking device. Opening an network interface allows receiving all CAN
-//! messages received on it. A device CAN be opened multiple times, every
-//! client will receive all CAN frames simultaneously.
+//! fn main() -> io::Result<()> {
+//!     let mut tp_socket = IsoTpSocket::open(
+//!         "vcan0",
+//!         0x123,
+//!         0x321,
+//!         None,
+//!         None,
+//!         None,
+//!     )
+//!     .unwrap();
 //!
-//! Similarly, CAN frames can be sent to the bus by multiple client
-//! simultaneously as well.
+//!     loop {
+//!         let buffer = tp_socket.read()?;
+//!         println!("read {} bytes", buffer.len());
+//!         
+//!         # print TP frame data
+//!         for x in buffer {
+//!             print!("{:X?} ", x);
+//!         }
 //!
-//! # Hardware and more information
+//!         println!("");
+//!     }
 //!
-//! More information on CAN [can be found on Wikipedia](). When not running on
-//! an embedded platform with already integrated CAN components,
-//! [Thomas Fischl's USBtin](http://www.fischl.de/usbtin/) (see
-//! [section 2.4](http://www.fischl.de/usbtin/#socketcan)) is one of many ways
-//! to get started.
+//!     Ok(())
+//! }
+//! ```
 //!
-//! # RawFd
-//!
-//! Raw access to the underlying file descriptor and construction through
-//! is available through the `AsRawFd`, `IntoRawFd` and `FromRawFd`
-//! implementations.
 use bitflags::bitflags;
 use libc::{
     bind, c_int, c_short, c_uint, c_void, close, fcntl, read, setsockopt, sockaddr, socket, write,
-    EINPROGRESS, F_GETFL, F_SETFL, O_NONBLOCK, SOCK_DGRAM,
+    F_GETFL, F_SETFL, O_NONBLOCK, SOCK_DGRAM,
 };
 use nix::net::if_::if_nametoindex;
-pub use socketcan::CANFrame;
 use std::convert::TryFrom;
 use std::mem::size_of;
 use std::num::TryFromIntError;
@@ -54,58 +56,19 @@ use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::time::Duration;
 use std::{error, fmt, io};
 
-/// Check an error return value for timeouts.
-///
-/// Due to the fact that timeouts are reported as errors, calling `read_frame`
-/// on a socket with a timeout that does not receive a frame in time will
-/// result in an error being returned. This trait adds a `should_retry` method
-/// to `Error` and `Result` to check for this condition.
-pub trait ShouldRetry {
-    /// Check for timeout
-    ///
-    /// If `true`, the error is probably due to a timeout.
-    fn should_retry(&self) -> bool;
-}
-
-impl ShouldRetry for io::Error {
-    fn should_retry(&self) -> bool {
-        match self.kind() {
-            // EAGAIN, EINPROGRESS and EWOULDBLOCK are the three possible codes
-            // returned when a timeout occurs. the stdlib already maps EAGAIN
-            // and EWOULDBLOCK os WouldBlock
-            io::ErrorKind::WouldBlock => true,
-            // however, EINPROGRESS is also valid
-            io::ErrorKind::Other => {
-                if let Some(i) = self.raw_os_error() {
-                    i == EINPROGRESS
-                } else {
-                    false
-                }
-            }
-            _ => false,
-        }
-    }
-}
-
-impl<E: fmt::Debug> ShouldRetry for io::Result<E> {
-    fn should_retry(&self) -> bool {
-        if let Err(ref e) = *self {
-            e.should_retry()
-        } else {
-            false
-        }
-    }
-}
-
-// constants stolen from C headers
+/// CAN address family
 pub const AF_CAN: c_int = 29;
+
+/// CAN protocol family
 pub const PF_CAN: c_int = 29;
 
 /// ISO 15765-2 Transport Protocol
 pub const CAN_ISOTP: c_int = 6;
 
+/// undocumented can.h constant
 pub const SOL_CAN_BASE: c_int = 100;
 
+/// undocumented isotp.h constant
 pub const SOL_CAN_ISOTP: c_int = SOL_CAN_BASE + CAN_ISOTP;
 
 /// pass struct `IsoTpOptions`
@@ -119,7 +82,7 @@ pub const CAN_ISOTP_RECV_FC: c_int = 2;
 /// provided in FC from the receiver
 pub const CAN_ISOTP_TX_STMIN: c_int = 3;
 
-/// pass __u32 value in nano secs  
+/// pass __u32 value in nano secs
 /// ignore received CF frames which
 /// timestamps differ less than val
 pub const CAN_ISOTP_RX_STMIN: c_int = 4;
@@ -129,6 +92,13 @@ pub const CAN_ISOTP_LL_OPTS: c_int = 5;
 
 /// CAN_MAX_DLEN According to ISO 11898-1
 pub const CAN_MAX_DLEN: u8 = 8;
+
+/// Size of buffer allocated for reading TP data
+const RECV_BUFFER_SIZE: usize = 4096;
+
+/// Size of a canframe, constant to reduce crate dependencies
+/// std::mem::size_of::<socketcan::CANFrame>())
+const SIZE_OF_CAN_FRAME: u8 = 16;
 
 bitflags! {
     pub struct IsoTpBehaviour: u32 {
@@ -184,8 +154,12 @@ pub const ERR_MASK_NONE: u32 = 0;
 struct CanAddr {
     _af_can: c_short,
     if_index: c_int, // address familiy,
+    /// transport protocol class address information
     rx_id: u32,
+    /// transport protocol class address information
     tx_id: u32,
+    _pgn: u32,
+    _addr: u8,
 }
 
 /// IsoTp otions aka `can_isotp_options`
@@ -378,7 +352,7 @@ impl Default for LinkLayerOptions {
     fn default() -> Self {
         Self {
             // CAN_ISOTP_DEFAULT_LL_MTU
-            mtu: size_of::<CANFrame>() as u8,
+            mtu: SIZE_OF_CAN_FRAME,
             // CAN_ISOTP_DEFAULT_LL_TX_DL
             tx_dl: CAN_MAX_DLEN,
             // CAN_ISOTP_DEFAULT_LL_TX_FLAGS
@@ -457,25 +431,19 @@ impl error::Error for ConstructionError {
     }
 }
 
-// impl From<nix::Error> for IsoTpSocketOpenError {
-//     fn from(e: nix::Error) -> IsoTpSocketOpenError {
-//         IsoTpSocketOpenError::LookupError(e)
-//     }
-// }
-
 impl From<io::Error> for IsoTpSocketOpenError {
     fn from(e: io::Error) -> IsoTpSocketOpenError {
         IsoTpSocketOpenError::IOError(e)
     }
 }
 
-/// A socket for a CAN device.
+/// An ISO-TP socketcan socket.
 ///
 /// Will be closed upon deallocation. To close manually, use std::drop::Drop.
 /// Internally this is just a wrapped file-descriptor.
-#[derive(Debug)]
 pub struct IsoTpSocket {
     fd: c_int,
+    recv_buffer: [u8; RECV_BUFFER_SIZE],
 }
 
 impl IsoTpSocket {
@@ -516,8 +484,10 @@ impl IsoTpSocket {
         let addr = CanAddr {
             _af_can: AF_CAN as c_short,
             if_index: if_index as c_int,
-            rx_id: dst, // ?
-            tx_id: src, // ?
+            rx_id: dst,
+            tx_id: src,
+            _pgn: 0,
+            _addr: 0,
         };
 
         // open socket
@@ -605,7 +575,10 @@ impl IsoTpSocket {
             return Err(IsoTpSocketOpenError::from(e));
         }
 
-        Ok(IsoTpSocket { fd: sock_fd })
+        Ok(IsoTpSocket {
+            fd: sock_fd,
+            recv_buffer: [0x00; RECV_BUFFER_SIZE],
+        })
     }
 
     fn close(&mut self) -> io::Result<()> {
@@ -641,32 +614,21 @@ impl IsoTpSocket {
         Ok(())
     }
 
-    /// Blocking read a single can frame.
-    pub fn read_frame(&self) -> io::Result<CANFrame> {
-        let mut frame = CANFrame::new(0, &[], false, false).unwrap();
+    /// Blocking read data
+    pub fn read(&mut self) -> io::Result<&[u8]> {
+        let buffer_ptr = &mut self.recv_buffer as *mut _ as *mut c_void;
 
-        let read_rv = unsafe {
-            let frame_ptr = &mut frame as *mut CANFrame;
-            read(self.fd, frame_ptr as *mut c_void, size_of::<CANFrame>())
-        };
+        let read_rv = unsafe { read(self.fd, buffer_ptr, RECV_BUFFER_SIZE) };
 
-        if read_rv as usize != size_of::<CANFrame>() {
+        if read_rv < 0 {
             return Err(io::Error::last_os_error());
         }
 
-        Ok(frame)
+        Ok(&self.recv_buffer[0..read_rv as usize])
     }
 
-    /// Write a single can frame.
-    ///
-    /// Note that this function can fail with an `EAGAIN` error or similar.
-    /// Use `write_frame_insist` if you need to be sure that the message got
-    /// sent or failed.
+    /// Blocking write a slice of data
     pub fn write(&self, buffer: &[u8]) -> io::Result<()> {
-        // not a mutable reference needed (see std::net::UdpSocket) for
-        // a comparison
-        // debug!("Sending: {:?}", frame);
-
         let write_rv = unsafe {
             let buffer_ptr = buffer as *const _ as *const c_void;
             write(self.fd, buffer_ptr, buffer.len())
@@ -688,7 +650,10 @@ impl AsRawFd for IsoTpSocket {
 
 impl FromRawFd for IsoTpSocket {
     unsafe fn from_raw_fd(fd: RawFd) -> IsoTpSocket {
-        IsoTpSocket { fd }
+        IsoTpSocket {
+            fd,
+            recv_buffer: [0x00; RECV_BUFFER_SIZE],
+        }
     }
 }
 

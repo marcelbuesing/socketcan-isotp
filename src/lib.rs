@@ -1,4 +1,6 @@
-//! SocketCAN ISO-TP support.
+#![deny(clippy::pedantic)]
+
+//! Socketcan ISO-TP support.
 //!
 //! The Linux kernel supports using CAN-devices through a
 //! [network-like API](https://www.kernel.org/doc/Documentation/networking/can.txt).
@@ -12,11 +14,10 @@
 //! Instructions on how the can-isotp kernel module can be build and loaded can be found
 //! at [https://github.com/hartkopp/can-isotp](https://github.com/hartkopp/can-isotp) .
 //!
-//! ```rust
+//! ```rust,no_run
 //! use socketcan_isotp::IsoTpSocket;
-//! use std::io;
 //!
-//! fn main() -> io::Result<()> {
+//! fn main() -> Result<(), socketcan_isotp::Error> {
 //!     let mut tp_socket = IsoTpSocket::open(
 //!         "vcan0",
 //!         0x123,
@@ -24,14 +25,13 @@
 //!         None,
 //!         None,
 //!         None,
-//!     )
-//!     .unwrap();
+//!     )?;
 //!
 //!     loop {
 //!         let buffer = tp_socket.read()?;
 //!         println!("read {} bytes", buffer.len());
 //!
-//!         # print TP frame data
+//!         // print TP frame data
 //!         for x in buffer {
 //!             print!("{:X?} ", x);
 //!         }
@@ -43,21 +43,24 @@
 //! }
 //! ```
 //!
+
 use bitflags::bitflags;
 use libc::{
-    bind, c_int, c_short, c_uint, c_void, close, fcntl, read, setsockopt, sockaddr, socket, write,
-    F_GETFL, F_SETFL, O_NONBLOCK, SOCK_DGRAM,
+    bind, c_int, c_short, c_void, close, fcntl, read, setsockopt, sockaddr, socket, write, F_GETFL,
+    F_SETFL, O_NONBLOCK, SOCK_DGRAM,
 };
 use nix::net::if_::if_nametoindex;
 use std::convert::TryFrom;
+use std::convert::TryInto;
+use std::io;
 use std::mem::size_of;
 use std::num::TryFromIntError;
 use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, RawFd};
 use std::time::Duration;
-use std::{error, fmt, io};
+use thiserror::Error;
 
 /// CAN address family
-pub const AF_CAN: c_int = 29;
+pub const AF_CAN: c_short = 29;
 
 /// CAN protocol family
 pub const PF_CAN: c_int = 29;
@@ -90,15 +93,21 @@ pub const CAN_ISOTP_RX_STMIN: c_int = 4;
 /// pass struct `LinkLayerOptions`
 pub const CAN_ISOTP_LL_OPTS: c_int = 5;
 
-/// CAN_MAX_DLEN According to ISO 11898-1
+/// `CAN_MAX_DLEN` According to ISO 11898-1
 pub const CAN_MAX_DLEN: u8 = 8;
 
 /// Size of buffer allocated for reading TP data
 const RECV_BUFFER_SIZE: usize = 4096;
 
 /// Size of a canframe, constant to reduce crate dependencies
-/// std::mem::size_of::<socketcan::CANFrame>())
+/// `std::mem::size_of::<socketcan::CANFrame>())`
 const SIZE_OF_CAN_FRAME: u8 = 16;
+
+const FLOW_CONTROL_OPTIONS_SIZE: usize = size_of::<FlowControlOptions>();
+
+const ISOTP_OPTIONS_SIZE: usize = size_of::<IsoTpOptions>();
+
+const LINK_LAYER_OPTIONS_SIZE: usize = size_of::<LinkLayerOptions>();
 
 bitflags! {
     pub struct IsoTpBehaviour: u32 {
@@ -143,10 +152,10 @@ pub const EFF_MASK: u32 = 0x1fff_ffff;
 /// valid bits in error frame
 pub const ERR_MASK: u32 = 0x1fff_ffff;
 
-/// an error mask that will cause SocketCAN to report all errors
+/// an error mask that will cause Socketcan to report all errors
 pub const ERR_MASK_ALL: u32 = ERR_MASK;
 
-/// an error mask that will cause SocketCAN to silently drop all errors
+/// an error mask that will cause Socketcan to silently drop all errors
 pub const ERR_MASK_NONE: u32 = 0;
 
 #[derive(Debug)]
@@ -162,7 +171,7 @@ struct CanAddr {
     _addr: u8,
 }
 
-/// IsoTp otions aka `can_isotp_options`
+/// ISO-TP otions aka `can_isotp_options`
 #[repr(C)]
 pub struct IsoTpOptions {
     /// set flags for isotp behaviour.
@@ -361,85 +370,26 @@ impl Default for LinkLayerOptions {
     }
 }
 
-#[derive(Debug)]
-/// Errors opening socket
-pub enum IsoTpSocketOpenError {
-    /// Device could not be found
-    LookupError(nix::Error),
+#[derive(Error, Debug)]
+/// Possible errors
+pub enum Error {
+    /// CAN device could not be found
+    #[error("Failed to find can device: {source:?}")]
+    LookupError {
+        #[from]
+        source: nix::Error,
+    },
 
-    /// System error while trying to look up device name
-    IOError(io::Error),
+    /// IO Error
+    #[error("IO error: {source:?}")]
+    IOError {
+        #[from]
+        source: io::Error,
+    },
 }
-
-impl fmt::Display for IsoTpSocketOpenError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            IsoTpSocketOpenError::LookupError(ref e) => write!(f, "CAN Device not found: {}", e),
-            IsoTpSocketOpenError::IOError(ref e) => write!(f, "IO: {}", e),
-        }
-    }
-}
-
-impl error::Error for IsoTpSocketOpenError {
-    fn description(&self) -> &str {
-        match *self {
-            IsoTpSocketOpenError::LookupError(_) => "can device not found",
-            IsoTpSocketOpenError::IOError(ref e) => e.description(),
-        }
-    }
-
-    fn cause(&self) -> Option<&dyn error::Error> {
-        match *self {
-            IsoTpSocketOpenError::LookupError(ref e) => Some(e),
-            IsoTpSocketOpenError::IOError(ref e) => Some(e),
-        }
-    }
-}
-
-impl From<nix::Error> for IsoTpSocketOpenError {
-    fn from(err: nix::Error) -> Self {
-        IsoTpSocketOpenError::LookupError(err)
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-/// Error that occurs when creating CAN packets
-pub enum ConstructionError {
-    /// CAN ID was outside the range of valid IDs
-    IDTooLarge,
-    /// More than 8 Bytes of payload data were passed in
-    TooMuchData,
-}
-
-impl fmt::Display for ConstructionError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ConstructionError::IDTooLarge => write!(f, "CAN ID too large"),
-            ConstructionError::TooMuchData => {
-                write!(f, "Payload is larger than CAN maximum of 8 bytes")
-            }
-        }
-    }
-}
-
-impl error::Error for ConstructionError {
-    fn description(&self) -> &str {
-        match *self {
-            ConstructionError::IDTooLarge => "can id too large",
-            ConstructionError::TooMuchData => "too much data",
-        }
-    }
-}
-
-impl From<io::Error> for IsoTpSocketOpenError {
-    fn from(e: io::Error) -> IsoTpSocketOpenError {
-        IsoTpSocketOpenError::IOError(e)
-    }
-}
-
 /// An ISO-TP socketcan socket.
 ///
-/// Will be closed upon deallocation. To close manually, use std::drop::Drop.
+/// Will be closed upon deallocation. To close manually, use `std::drop::Drop`.
 /// Internally this is just a wrapped file-descriptor.
 pub struct IsoTpSocket {
     fd: c_int,
@@ -458,10 +408,10 @@ impl IsoTpSocket {
         isotp_options: Option<&mut IsoTpOptions>,
         rx_flow_control_options: Option<&mut FlowControlOptions>,
         link_layer_options: Option<&mut LinkLayerOptions>,
-    ) -> Result<IsoTpSocket, IsoTpSocketOpenError> {
+    ) -> Result<Self, Error> {
         let if_index = if_nametoindex(ifname)?;
-        IsoTpSocket::open_if(
-            if_index,
+        Self::open_if(
+            if_index.try_into().unwrap(),
             src,
             dst,
             isotp_options,
@@ -474,16 +424,16 @@ impl IsoTpSocket {
     ///
     /// Opens a CAN device by kernel interface number.
     pub fn open_if(
-        if_index: c_uint,
+        if_index: c_int,
         src: u32,
         dst: u32,
         isotp_options: Option<&mut IsoTpOptions>,
         rx_flow_control_options: Option<&mut FlowControlOptions>,
         link_layer_options: Option<&mut LinkLayerOptions>,
-    ) -> Result<IsoTpSocket, IsoTpSocketOpenError> {
+    ) -> Result<Self, Error> {
         let addr = CanAddr {
-            _af_can: AF_CAN as c_short,
-            if_index: if_index as c_int,
+            _af_can: AF_CAN,
+            if_index,
             rx_id: dst,
             tx_id: src,
             _pgn: 0,
@@ -497,24 +447,23 @@ impl IsoTpSocket {
         }
 
         if sock_fd == -1 {
-            return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
+            return Err(Error::from(io::Error::last_os_error()));
         }
 
         // Set IsoTpOptions
         if let Some(isotp_options) = isotp_options {
             let isotp_options_ptr: *mut c_void = isotp_options as *mut _ as *mut c_void;
-            const ISOTP_OPTIONS_SIZE: u32 = size_of::<IsoTpOptions>() as u32;
             let err = unsafe {
                 setsockopt(
                     sock_fd,
                     SOL_CAN_ISOTP,
                     CAN_ISOTP_OPTS,
                     isotp_options_ptr,
-                    ISOTP_OPTIONS_SIZE,
+                    ISOTP_OPTIONS_SIZE.try_into().unwrap(),
                 )
             };
             if err == -1 {
-                return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
+                return Err(Error::from(io::Error::last_os_error()));
             }
         }
 
@@ -522,36 +471,34 @@ impl IsoTpSocket {
         if let Some(rx_flow_control_options) = rx_flow_control_options {
             let rx_flow_control_options_ptr: *mut c_void =
                 rx_flow_control_options as *mut _ as *mut c_void;
-            const FLOW_CONTROL_OPTIONS_SIZE: u32 = size_of::<FlowControlOptions>() as u32;
             let err = unsafe {
                 setsockopt(
                     sock_fd,
                     SOL_CAN_ISOTP,
                     CAN_ISOTP_RECV_FC,
                     rx_flow_control_options_ptr,
-                    FLOW_CONTROL_OPTIONS_SIZE,
+                    FLOW_CONTROL_OPTIONS_SIZE.try_into().unwrap(),
                 )
             };
             if err == -1 {
-                return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
+                return Err(Error::from(io::Error::last_os_error()));
             }
         }
 
         // Set LinkLayerOptions
         if let Some(link_layer_options) = link_layer_options {
             let link_layer_options_ptr: *mut c_void = link_layer_options as *mut _ as *mut c_void;
-            const LINK_LAYER_OPTIONS_SIZE: u32 = size_of::<LinkLayerOptions>() as u32;
             let err = unsafe {
                 setsockopt(
                     sock_fd,
                     SOL_CAN_ISOTP,
                     CAN_ISOTP_LL_OPTS,
                     link_layer_options_ptr,
-                    LINK_LAYER_OPTIONS_SIZE,
+                    LINK_LAYER_OPTIONS_SIZE.try_into().unwrap(),
                 )
             };
             if err == -1 {
-                return Err(IsoTpSocketOpenError::from(io::Error::last_os_error()));
+                return Err(Error::from(io::Error::last_os_error()));
             }
         }
 
@@ -562,7 +509,7 @@ impl IsoTpSocket {
             bind_rv = bind(
                 sock_fd,
                 sockaddr_ptr as *const sockaddr,
-                size_of::<CanAddr>() as u32,
+                size_of::<CanAddr>().try_into().unwrap(),
             );
         }
 
@@ -572,10 +519,10 @@ impl IsoTpSocket {
             unsafe {
                 close(sock_fd);
             }
-            return Err(IsoTpSocketOpenError::from(e));
+            return Err(Error::from(e));
         }
 
-        Ok(IsoTpSocket {
+        Ok(Self {
             fd: sock_fd,
             recv_buffer: [0x00; RECV_BUFFER_SIZE],
         })
@@ -624,7 +571,7 @@ impl IsoTpSocket {
             return Err(io::Error::last_os_error());
         }
 
-        Ok(&self.recv_buffer[0..read_rv as usize])
+        Ok(&self.recv_buffer[0..read_rv.try_into().unwrap()])
     }
 
     /// Blocking write a slice of data
@@ -634,7 +581,7 @@ impl IsoTpSocket {
             write(self.fd, buffer_ptr, buffer.len())
         };
 
-        if write_rv as usize != buffer.len() {
+        if write_rv != buffer.len().try_into().unwrap() {
             return Err(io::Error::last_os_error());
         }
 
@@ -649,8 +596,8 @@ impl AsRawFd for IsoTpSocket {
 }
 
 impl FromRawFd for IsoTpSocket {
-    unsafe fn from_raw_fd(fd: RawFd) -> IsoTpSocket {
-        IsoTpSocket {
+    unsafe fn from_raw_fd(fd: RawFd) -> Self {
+        Self {
             fd,
             recv_buffer: [0x00; RECV_BUFFER_SIZE],
         }

@@ -1,10 +1,7 @@
-use socketcan_isotp::IsoTpSocket;
-use std::io;
+use socketcan_isotp::{self, IsoTpSocket};
 
-use socketcan::CANFrame;
-fn main() -> io::Result<()> {
-    println!("SIZE {}", std::mem::size_of::<CANFrame>());
-    let mut tp_socket = IsoTpSocket::open("vcan0", 0x123, 0x321, None, None, None).unwrap();
+fn main() -> Result<(), socketcan_isotp::Error> {
+    let mut tp_socket = IsoTpSocket::open("vcan0", 0x123, 0x321, None, None, None)?;
 
     let buffer = tp_socket.read()?;
     println!("read {} bytes", buffer.len());

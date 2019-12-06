@@ -33,10 +33,10 @@ care of handling the ISO-TP protocol.
 Instructions on how the can-isotp kernel module can be build and loaded can be found
 at [https://github.com/hartkopp/can-isotp](https://github.com/hartkopp/can-isotp) .
 
-```rust
-use socketcan_isotp::IsoTpSocket;
-use std::io;
-fn main() -> io::Result<()> {
+```rust,no_run
+use socketcan_isotp::{self, IsoTpSocket};
+
+fn main() -> Result<(), socketcan_isotp::Error> {
     let mut tp_socket = IsoTpSocket::open(
         "vcan0",
         0x123,
@@ -44,14 +44,13 @@ fn main() -> io::Result<()> {
         None,
         None,
         None,
-    )
-    .unwrap();
+    )?;
 
     loop {
         let buffer = tp_socket.read()?;
         println!("read {} bytes", buffer.len());
 
-        # print TP frame data
+        // print TP frame data
         for x in buffer {
             print!("{:X?} ", x);
         }

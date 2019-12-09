@@ -26,12 +26,13 @@ The Linux kernel supports using CAN-devices through a
 This crate allows easy access to this functionality without having to wrestle
 libc calls.
 
-ISO-TP allows sending data packets that exceed the eight byte of a default CAN frame.
-[can-isotp](https://github.com/hartkopp/can-isotp) is an ISO-TP kernel module that takes
-care of handling the ISO-TP protocol.
+[ISO-TP](https://en.wikipedia.org/wiki/ISO_15765-2) or [ISO 15762-2](https://en.wikipedia.org/wiki/ISO_15765-2) allows
+sending data packets that exceed the eight byte of a default CAN frame. A common application of ISO-TP is for example
+[Unified Diagnostic Services (UDS)](https://en.wikipedia.org/wiki/Unified_Diagnostic_Services) used in automotive ECUs for diagnostics.
 
-Instructions on how the can-isotp kernel module can be build and loaded can be found
-at [https://github.com/hartkopp/can-isotp](https://github.com/hartkopp/can-isotp) .
+[can-isotp](https://github.com/hartkopp/can-isotp) is an ISO-TP kernel module that takes
+care of handling the ISO-TP protocol. Instructions on how the can-isotp kernel module can be build and loaded can be found
+at [https://github.com/hartkopp/can-isotp](https://github.com/hartkopp/can-isotp).
 
 ```rust,no_run
 use socketcan_isotp::{self, IsoTpSocket};

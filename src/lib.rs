@@ -1,4 +1,4 @@
-#![deny(clippy::pedantic)]
+#![deny(clippy::all)]
 
 //! Socketcan ISO-TP support.
 //!
@@ -21,10 +21,7 @@
 //!     let mut tp_socket = IsoTpSocket::open(
 //!         "vcan0",
 //!         0x123,
-//!         0x321,
-//!         None,
-//!         None,
-//!         None,
+//!         0x321
 //!     )?;
 //!
 //!     loop {
@@ -397,20 +394,35 @@ pub struct IsoTpSocket {
 }
 
 impl IsoTpSocket {
-    /// Open a named CAN device.
+    /// Open a named CAN ISO-TP device.
     ///
     /// Usually the more common case, opens a socket can device by name, such
     /// as "vcan0" or "socan0".
-    pub fn open(
+    pub fn open(ifname: &str, src: u32, dst: u32) -> Result<Self, Error> {
+        Self::open_with_opts(
+            ifname,
+            src,
+            dst,
+            Some(IsoTpOptions::default()),
+            Some(FlowControlOptions::default()),
+            Some(LinkLayerOptions::default()),
+        )
+    }
+
+    /// Open a named CAN ISO-TP device, passing additional options.
+    ///
+    /// Usually the more common case, opens a socket can device by name, such
+    /// as "vcan0" or "socan0".
+    pub fn open_with_opts(
         ifname: &str,
         src: u32,
         dst: u32,
-        isotp_options: Option<&mut IsoTpOptions>,
-        rx_flow_control_options: Option<&mut FlowControlOptions>,
-        link_layer_options: Option<&mut LinkLayerOptions>,
+        isotp_options: Option<IsoTpOptions>,
+        rx_flow_control_options: Option<FlowControlOptions>,
+        link_layer_options: Option<LinkLayerOptions>,
     ) -> Result<Self, Error> {
         let if_index = if_nametoindex(ifname)?;
-        Self::open_if(
+        Self::open_if_with_opts(
             if_index.try_into().unwrap(),
             src,
             dst,
@@ -420,16 +432,30 @@ impl IsoTpSocket {
         )
     }
 
-    /// Open CAN device by interface number.
+    /// Open CAN ISO-TP device device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    pub fn open_if(
+    pub fn open_if(if_index: c_int, src: u32, dst: u32) -> Result<Self, Error> {
+        Self::open_if_with_opts(
+            if_index.try_into().unwrap(),
+            src,
+            dst,
+            Some(IsoTpOptions::default()),
+            Some(FlowControlOptions::default()),
+            Some(LinkLayerOptions::default()),
+        )
+    }
+
+    /// Open CAN ISO-TP device device by interface number, passing additional options.
+    ///
+    /// Opens a CAN device by kernel interface number.
+    pub fn open_if_with_opts(
         if_index: c_int,
         src: u32,
         dst: u32,
-        isotp_options: Option<&mut IsoTpOptions>,
-        rx_flow_control_options: Option<&mut FlowControlOptions>,
-        link_layer_options: Option<&mut LinkLayerOptions>,
+        isotp_options: Option<IsoTpOptions>,
+        rx_flow_control_options: Option<FlowControlOptions>,
+        link_layer_options: Option<LinkLayerOptions>,
     ) -> Result<Self, Error> {
         let addr = CanAddr {
             _af_can: AF_CAN,
@@ -452,7 +478,7 @@ impl IsoTpSocket {
 
         // Set IsoTpOptions
         if let Some(isotp_options) = isotp_options {
-            let isotp_options_ptr: *mut c_void = isotp_options as *mut _ as *mut c_void;
+            let isotp_options_ptr: *const c_void = &isotp_options as *const _ as *const c_void;
             let err = unsafe {
                 setsockopt(
                     sock_fd,
@@ -469,8 +495,8 @@ impl IsoTpSocket {
 
         // Set FlowControlOptions
         if let Some(rx_flow_control_options) = rx_flow_control_options {
-            let rx_flow_control_options_ptr: *mut c_void =
-                rx_flow_control_options as *mut _ as *mut c_void;
+            let rx_flow_control_options_ptr: *const c_void =
+                &rx_flow_control_options as *const _ as *const c_void;
             let err = unsafe {
                 setsockopt(
                     sock_fd,
@@ -487,7 +513,8 @@ impl IsoTpSocket {
 
         // Set LinkLayerOptions
         if let Some(link_layer_options) = link_layer_options {
-            let link_layer_options_ptr: *mut c_void = link_layer_options as *mut _ as *mut c_void;
+            let link_layer_options_ptr: *const c_void =
+                &link_layer_options as *const _ as *const c_void;
             let err = unsafe {
                 setsockopt(
                     sock_fd,

@@ -50,20 +50,21 @@ jobs:
           args: -- -D warnings
 
   license-check:
-    name: Licensecheck
+    name: license-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: beta
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-deny
-      - uses: actions-rs/cargo@v1
-        with:
-          command: deny
-          args: check
+    - uses: actions/checkout@v1
+    - name: download cargo-deny
+      shell: bash
+      env:
+        DVS: 0.3.0-beta
+        DREPO: EmbarkStudios/cargo-deny
+        TARGET: x86_64-unknown-linux-musl
+      run: |
+        temp_archive=$(mktemp --suffix=.tar.gz)
+        curl -L --output "$temp_archive" https://github.com/$DREPO/releases/download/$DVS/cargo-deny-$DVS-$TARGET.tar.gz
+        tar -xzvf "$temp_archive" -C . --strip-components=1 --wildcards "*/cargo-deny"
+    - name: cargo-deny check licenses
+      run: ./cargo-deny -L debug check license
+    - name: cargo-deny check bans
+      run: ./cargo-deny -L debug check ban

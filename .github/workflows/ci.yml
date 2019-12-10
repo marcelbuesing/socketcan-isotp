@@ -55,10 +55,6 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-deny
-      - uses: actions-rs/cargo@v1
-        with:
-          command: deny
-          args: check
+        run: |
+          cargo install cargo-deny
+          cargo deny check

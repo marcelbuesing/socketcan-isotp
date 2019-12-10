@@ -4,6 +4,14 @@ version = "0.1.0"
 authors = ["marcelbuesing <buesing.marcel@googlemail.com>"]
 edition = "2018"
 license = "BSD-3-Clause"
+description = "A common application of ISO-TP or ISO 15762-2 is for example Unified Diagnostic Services (UDS) used in automotive ECUs for diagnostics."
+readme = "README.md"
+homepage = "https://github.com/marcelbuesing/socketcan-isotp"
+repository = "https://github.com/marcelbuesing/socketcan-isotp.git"
+keywords = ["can", "socketcan", "iso-tp", "isotp", "iso-15762-2"]
+
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 bitflags = "1.2"

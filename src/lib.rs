@@ -460,8 +460,8 @@ impl IsoTpSocket {
         let addr = CanAddr {
             _af_can: AF_CAN,
             if_index,
-            rx_id: dst,
-            tx_id: src,
+            rx_id: src,
+            tx_id: dst,
             _pgn: 0,
             _addr: 0,
         };

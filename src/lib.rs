@@ -336,7 +336,7 @@ pub struct LinkLayerOptions {
     /// __u8 value : 8,12,16,20,24,32,48,64
     /// => rx path supports all LL_DL values
     tx_dl: u8,
-    /// set into struct canfd_frame.flags	*/
+    /// set into struct canfd_frame.flags
     /// at frame creation: e.g. CANFD_BRS
     /// Obsolete when the BRS flag is fixed
     /// by the CAN netdriver configuration

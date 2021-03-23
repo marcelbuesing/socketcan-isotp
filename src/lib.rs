@@ -372,14 +372,14 @@ impl Default for LinkLayerOptions {
 pub enum Error {
     /// CAN device could not be found
     #[error("Failed to find can device: {source:?}")]
-    LookupError {
+    Lookup {
         #[from]
         source: nix::Error,
     },
 
     /// IO Error
     #[error("IO error: {source:?}")]
-    IOError {
+    Io {
         #[from]
         source: io::Error,
     },

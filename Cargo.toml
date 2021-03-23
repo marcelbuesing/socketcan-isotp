@@ -16,5 +16,5 @@ maintenance = { status = "actively-developed" }
 [dependencies]
 bitflags = "1.2"
 libc = "0.2"
-nix = "0.16"
+nix = "0.20"
 thiserror = "1.0"

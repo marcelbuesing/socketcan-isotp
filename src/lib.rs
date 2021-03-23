@@ -437,7 +437,7 @@ impl IsoTpSocket {
     /// Opens a CAN device by kernel interface number.
     pub fn open_if(if_index: c_int, src: u32, dst: u32) -> Result<Self, Error> {
         Self::open_if_with_opts(
-            if_index.try_into().unwrap(),
+            if_index,
             src,
             dst,
             Some(IsoTpOptions::default()),

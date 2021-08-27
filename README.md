@@ -35,28 +35,27 @@ care of handling the ISO-TP protocol. Instructions on how the can-isotp kernel m
 at [https://github.com/hartkopp/can-isotp](https://github.com/hartkopp/can-isotp).
 
 ```rust,no_run
-use socketcan_isotp::{self, IsoTpSocket};
+use socketcan_isotp::{self, IsoTpSocket, StandardId};
 
 fn main() -> Result<(), socketcan_isotp::Error> {
     let mut tp_socket = IsoTpSocket::open(
         "vcan0",
-        0x123,
-        0x321
+        StandardId::new(0x123).expect("Invalid src id"),
+        StandardId::new(0x321).expect("Invalid dst id"),
     )?;
 
-    loop {
-        let buffer = tp_socket.read()?;
-        println!("read {} bytes", buffer.len());
+    let buffer = tp_socket.read()?;
+    println!("read {} bytes", buffer.len());
 
-        // print TP frame data
-        for x in buffer {
-            print!("{:X?} ", x);
-        }
-        println!("");
+    for x in buffer {
+        print!("{:X?} ", x);
     }
+
+    println!("");
 
     Ok(())
 }
+
 ```
 
 # Dev Setup

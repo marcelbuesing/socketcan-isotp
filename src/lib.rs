@@ -42,6 +42,7 @@
 //!
 
 use bitflags::bitflags;
+pub use embedded_can::{ExtendedId, Id, StandardId};
 use libc::{
     bind, c_int, c_short, c_void, close, fcntl, read, setsockopt, sockaddr, socket, write, F_GETFL,
     F_SETFL, O_NONBLOCK, SOCK_DGRAM,
@@ -398,7 +399,7 @@ impl IsoTpSocket {
     ///
     /// Usually the more common case, opens a socket can device by name, such
     /// as "vcan0" or "socan0".
-    pub fn open(ifname: &str, src: u32, dst: u32) -> Result<Self, Error> {
+    pub fn open(ifname: &str, src: impl Into<Id>, dst: impl Into<Id>) -> Result<Self, Error> {
         Self::open_with_opts(
             ifname,
             src,
@@ -415,8 +416,8 @@ impl IsoTpSocket {
     /// as "vcan0" or "socan0".
     pub fn open_with_opts(
         ifname: &str,
-        src: u32,
-        dst: u32,
+        src: impl Into<Id>,
+        dst: impl Into<Id>,
         isotp_options: Option<IsoTpOptions>,
         rx_flow_control_options: Option<FlowControlOptions>,
         link_layer_options: Option<LinkLayerOptions>,
@@ -435,7 +436,7 @@ impl IsoTpSocket {
     /// Open CAN ISO-TP device device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    pub fn open_if(if_index: c_int, src: u32, dst: u32) -> Result<Self, Error> {
+    pub fn open_if(if_index: c_int, src: impl Into<Id>, dst: impl Into<Id>) -> Result<Self, Error> {
         Self::open_if_with_opts(
             if_index,
             src,
@@ -451,17 +452,25 @@ impl IsoTpSocket {
     /// Opens a CAN device by kernel interface number.
     pub fn open_if_with_opts(
         if_index: c_int,
-        src: u32,
-        dst: u32,
+        src: impl Into<Id>,
+        dst: impl Into<Id>,
         isotp_options: Option<IsoTpOptions>,
         rx_flow_control_options: Option<FlowControlOptions>,
         link_layer_options: Option<LinkLayerOptions>,
     ) -> Result<Self, Error> {
+        let rx_id = match src.into() {
+            Id::Standard(standard_id) => standard_id.as_raw() as u32,
+            Id::Extended(extended_id) => extended_id.as_raw() | EFF_FLAG,
+        };
+        let tx_id = match dst.into() {
+            Id::Standard(standard_id) => standard_id.as_raw() as u32,
+            Id::Extended(extended_id) => extended_id.as_raw() | EFF_FLAG,
+        };
         let addr = CanAddr {
             _af_can: AF_CAN,
             if_index,
-            rx_id: src,
-            tx_id: dst,
+            rx_id,
+            tx_id,
             _pgn: 0,
             _addr: 0,
         };

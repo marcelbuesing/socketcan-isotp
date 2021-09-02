@@ -8,7 +8,7 @@
 
   <p>
     <a href="https://github.com/marcelbuesing/socketcan-isotp/actions?query=workflow%3ACI"><img alt="Build Status" src="https://github.com/marcelbuesing/socketcan-isotp/workflows/CI/badge.svg"/></a>
-    <a href="https://crates.io/crates/socketcan-isotp"><img alt="crates.io" src="https://meritbadge.herokuapp.com/socketcan-isotp"/></a>
+    <a href="https://crates.io/crates/socketcan-isotp"><img alt="crates.io" src="https://img.shields.io/crates/v/socketcan-isotp.svg"/></a>
     <a href="https://crates.io/crates/socketcan-isotp"><img alt="crates.io" src="https://img.shields.io/crates/l/socketcan-isotp/0.1.0"/></a>
   </p>
 

@@ -316,6 +316,24 @@ impl Default for FlowControlOptions {
     }
 }
 
+impl FlowControlOptions {
+    /// Creates new flow control options
+    /// # Parameters
+    /// * bs - Blocksize for the ISO-TP frame, set 0 for off (Sending ECU shall send all frames in 1 block)
+    /// * stmin - Separation time between consecutive frames. The following values are allowed:
+    ///     * 0x00 - 0x7F : 0 - 127 ms
+    ///     * 0xF1 - 0xF9 : 100 - 900 us
+    /// * wftmax - Maximum number of wait frame transmiss
+    ///     * Default value is 0 (omit)
+    pub fn new(bs: u8, stmin: u8, wftmax: u8) -> Self {
+        Self {
+            bs,
+            stmin,
+            wftmax
+        }
+    }
+}
+
 bitflags! {
     pub struct TxFlags: u8 {
         /// bit rate switch (second bitrate for payload data)

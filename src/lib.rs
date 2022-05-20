@@ -326,11 +326,7 @@ impl FlowControlOptions {
     /// * wftmax - Maximum number of wait frame transmiss
     ///     * Default value is 0 (omit)
     pub fn new(bs: u8, stmin: u8, wftmax: u8) -> Self {
-        Self {
-            bs,
-            stmin,
-            wftmax
-        }
+        Self { bs, stmin, wftmax }
     }
 }
 

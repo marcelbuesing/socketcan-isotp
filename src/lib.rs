@@ -107,6 +107,12 @@ const ISOTP_OPTIONS_SIZE: usize = size_of::<IsoTpOptions>();
 
 const LINK_LAYER_OPTIONS_SIZE: usize = size_of::<LinkLayerOptions>();
 
+const CAN_ISOTP_DEFAULT_RECV_BS: u8 = 0;
+
+const CAN_ISOTP_DEFAULT_RECV_STMIN: u8 = 0x00;
+
+const CAN_ISOTP_DEFAULT_RECV_WFTMAX: u8 = 0;
+
 bitflags! {
     pub struct IsoTpBehaviour: u32 {
         /// listen only (do not send FC)
@@ -306,12 +312,9 @@ pub struct FlowControlOptions {
 impl Default for FlowControlOptions {
     fn default() -> Self {
         Self {
-            // CAN_ISOTP_DEFAULT_RECV_BS
-            bs: 0,
-            // CAN_ISOTP_DEFAULT_RECV_STMIN
-            stmin: 0x00,
-            // CAN_ISOTP_DEFAULT_RECV_WFTMAX
-            wftmax: 0,
+            bs: CAN_ISOTP_DEFAULT_RECV_BS,
+            stmin: CAN_ISOTP_DEFAULT_RECV_STMIN,
+            wftmax: CAN_ISOTP_DEFAULT_RECV_WFTMAX,
         }
     }
 }

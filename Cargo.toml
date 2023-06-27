@@ -14,7 +14,7 @@ keywords = ["can", "socketcan", "iso-tp", "isotp", "iso-15762-2"]
 maintenance = { status = "actively-developed" }
 
 [dependencies]
-bitflags = "1.2"
+bitflags = "2.3"
 embedded-can = "0.3"
 libc = "0.2"
 nix = "0.24"

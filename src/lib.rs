@@ -416,11 +416,11 @@ impl IsoTpSocket {
     ///
     /// Usually the more common case, opens a socket can device by name, such
     /// as "vcan0" or "socan0".
-    pub fn open(ifname: &str, src: impl Into<Id>, dst: impl Into<Id>) -> Result<Self, Error> {
+    pub fn open(ifname: &str, rx_id: impl Into<Id>, tx_id: impl Into<Id>) -> Result<Self, Error> {
         Self::open_with_opts(
             ifname,
-            src,
-            dst,
+            rx_id,
+            tx_id,
             Some(IsoTpOptions::default()),
             Some(FlowControlOptions::default()),
             Some(LinkLayerOptions::default()),
@@ -433,8 +433,8 @@ impl IsoTpSocket {
     /// as "vcan0" or "socan0".
     pub fn open_with_opts(
         ifname: &str,
-        src: impl Into<Id>,
-        dst: impl Into<Id>,
+        rx_id: impl Into<Id>,
+        tx_id: impl Into<Id>,
         isotp_options: Option<IsoTpOptions>,
         rx_flow_control_options: Option<FlowControlOptions>,
         link_layer_options: Option<LinkLayerOptions>,
@@ -442,8 +442,8 @@ impl IsoTpSocket {
         let if_index = if_nametoindex(ifname)?;
         Self::open_if_with_opts(
             if_index.try_into().unwrap(),
-            src,
-            dst,
+            rx_id,
+            tx_id,
             isotp_options,
             rx_flow_control_options,
             link_layer_options,
@@ -453,11 +453,15 @@ impl IsoTpSocket {
     /// Open CAN ISO-TP device device by interface number.
     ///
     /// Opens a CAN device by kernel interface number.
-    pub fn open_if(if_index: c_int, src: impl Into<Id>, dst: impl Into<Id>) -> Result<Self, Error> {
+    pub fn open_if(
+        if_index: c_int,
+        rx_id: impl Into<Id>,
+        tx_id: impl Into<Id>,
+    ) -> Result<Self, Error> {
         Self::open_if_with_opts(
             if_index,
-            src,
-            dst,
+            rx_id,
+            tx_id,
             Some(IsoTpOptions::default()),
             Some(FlowControlOptions::default()),
             Some(LinkLayerOptions::default()),
@@ -469,17 +473,17 @@ impl IsoTpSocket {
     /// Opens a CAN device by kernel interface number.
     pub fn open_if_with_opts(
         if_index: c_int,
-        src: impl Into<Id>,
-        dst: impl Into<Id>,
+        rx_id: impl Into<Id>,
+        tx_id: impl Into<Id>,
         isotp_options: Option<IsoTpOptions>,
         rx_flow_control_options: Option<FlowControlOptions>,
         link_layer_options: Option<LinkLayerOptions>,
     ) -> Result<Self, Error> {
-        let rx_id = match src.into() {
+        let rx_id = match rx_id.into() {
             Id::Standard(standard_id) => standard_id.as_raw() as u32,
             Id::Extended(extended_id) => extended_id.as_raw() | EFF_FLAG,
         };
-        let tx_id = match dst.into() {
+        let tx_id = match tx_id.into() {
             Id::Standard(standard_id) => standard_id.as_raw() as u32,
             Id::Extended(extended_id) => extended_id.as_raw() | EFF_FLAG,
         };

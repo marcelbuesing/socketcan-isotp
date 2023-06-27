@@ -11,8 +11,8 @@ fn main() -> Result<(), socketcan_isotp::Error> {
     // Reader
     let mut reader_tp_socket = IsoTpSocket::open(
         "vcan0",
-        StandardId::new(0x7E8).expect("Invalid dst CAN ID"),
-        StandardId::new(0x77A).expect("Invalid src CAN ID"),
+        StandardId::new(0x7E8).expect("Invalid rx CAN ID"),
+        StandardId::new(0x77A).expect("Invalid tx CAN ID"),
     )?;
     std::thread::spawn(move || loop {
         let buffer = reader_tp_socket.read().expect("Failed to read from socket");
@@ -21,8 +21,8 @@ fn main() -> Result<(), socketcan_isotp::Error> {
 
     let tp_socket = IsoTpSocket::open(
         "vcan0",
-        StandardId::new(0x77A).expect("Invalid src CAN ID"),
-        StandardId::new(0x7E0).expect("Invalid dst CAN ID"),
+        StandardId::new(0x77A).expect("Invalid rx CAN ID"),
+        StandardId::new(0x7E0).expect("Invalid tx CAN ID"),
     )?;
 
     // 0x22 - Service Identifier for "Read data by identifier" request

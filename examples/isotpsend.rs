@@ -4,8 +4,8 @@ use std::time::Duration;
 fn main() -> Result<(), socketcan_isotp::Error> {
     let tp_socket = IsoTpSocket::open(
         "vcan0",
-        StandardId::new(0x321).expect("Invalid dst id"),
-        StandardId::new(0x123).expect("Invalid src id"),
+        StandardId::new(0x321).expect("Invalid rx id"),
+        StandardId::new(0x123).expect("Invalid tx id"),
     )?;
 
     loop {

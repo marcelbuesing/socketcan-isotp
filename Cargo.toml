@@ -17,5 +17,5 @@ maintenance = { status = "actively-developed" }
 bitflags = "2.3"
 embedded-can = "0.4"
 libc = "0.2"
-nix = "0.24"
+nix = "0.26"
 thiserror = "1.0"

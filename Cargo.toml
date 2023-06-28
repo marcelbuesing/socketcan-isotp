@@ -2,7 +2,7 @@
 name = "socketcan-isotp"
 version = "1.0.2"
 authors = ["marcelbuesing <buesing.marcel@googlemail.com>"]
-edition = "2018"
+edition = "2021"
 license = "BSD-3-Clause"
 description = "A common application of ISO-TP or ISO 15762-2 is for example Unified Diagnostic Services (UDS) used in automotive ECUs for diagnostics."
 readme = "README.md"

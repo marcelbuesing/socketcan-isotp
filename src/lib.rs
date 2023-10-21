@@ -135,6 +135,8 @@ bitflags! {
         const CAN_ISOTP_FORCE_RXSTMIN = 0x100;
         /// different rx extended addressing
         const CAN_ISOTP_RX_EXT_ADDR = 0x200;
+        /// wait for tx completion
+        const CAN_ISOTP_WAIT_TX_DONE = 0x400;
     }
 }
 
